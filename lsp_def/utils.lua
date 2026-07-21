@@ -77,6 +77,7 @@
 ---@field modify_hand? true Check if `true` for modifying the chips and mult of the played hand.
 ---@field drawing_cards? true `true` when cards are being drawn
 ---@field amount? number Used for in some contexts to specify a numerical amount.
+---@field initial? number Used in some contexts to specify the original value of a changing number.
 ---@field evaluate_poker_hand? integer Check if `true` for modifying the name, display name or contained poker hands when evaluating a hand.
 ---@field display_name? PokerHands|'Royal Flush'|string Display name of the scoring poker hand.
 ---@field mod_probability? true Check if `true` for effects that make additive or multiplicative modifications to probabilities.
@@ -107,6 +108,7 @@
 ---@field from_shop? true Check if `true` if money changed during the shop.
 ---@field from_consumeable? true Check if `true` if money changed by a consumable.
 ---@field from_scoring? true Check if `true` if money changed during scoring.
+---@field from_cashout? true Check if `true` if money changed from cashing out.
 ---@field modify_ante? number The amount the ante changes by, check for effects before the ante changes.
 ---@field ante_change? true Check if `true` for effects when the ante changes.
 ---@field ante_end? true Check if `true` for when the ante change is for reaching the end of the ante.
@@ -768,6 +770,13 @@ function SMODS.reset_card(card, args) end
 --- i.e. the in_pool method doesn't exist or it returns `true`
 function SMODS.add_to_pool(prototype_obj, args) end
 
+---@param prototype_obj SMODS.GameObject|table
+---@param args table?
+---@return boolean?, table?
+--- Checks whether an object should be hidden from the collection.
+--- i.e. the no_collection method doesn't exist or it returns `false`
+function SMODS.hide_from_collection(prototype_obj, args) end
+
 ---@param context CalcContext|table The context being pushed
 ---@param func string|nil The function/file from which the call originates
 --- Pushes a context to the SMODS.context_stack. (Form: {context=context, count=[number of consecutive pushes]})
@@ -794,6 +803,16 @@ function SMODS.update_context_flags(context, flags) end
 --- (e.g. "enhancement" for context.check_enhancement)
 --- or false if the [context] isn't a getter context.
 function SMODS.is_getter_context(context) end
+
+---@param context CalcContext|table The context checked
+---@return boolean
+-- Returns whether or not the given context can retrigger (by checking SMODS.CONTEXT_RETRIGGER_BLACKLIST)
+function SMODS.can_context_retrigger(context) end
+
+---@param context CalcContext|table The context checked
+---@return boolean
+--- Returns whether or not the given context can post_trigger (by checking SMODS.CONTEXT_POST_TRIGGER_BLACKLIST)
+function SMODS.can_context_post_trigger(context) end
 
 ---@param eval_object SMODS.GameObject|table The object that will be evaluated next if this returns false
 ---@return boolean
@@ -903,6 +922,12 @@ function SMODS.copy_card(card, args) end
 ---@param args {set: string?, area: CardArea|table?, playing_card: integer?}?
 ---@return Card|table
 function SMODS.add_to_deck(card, args) end
+
+-- Util function to render one card to a `.png` file, saved to `love.filesystem.getSaveDirectory()`
+---@param card Card|table Card to save as an image
+---@param scale number? Scale to render the card at (default = G.SETTINGS.GRAPHICS.texture_scaling)
+---@param filename string? Name of the file (default = [center.key])
+function SMODS.card_to_image(card, scale, filename) end
 
 ---Checks if a card counts as at least one suit that matches the provided suit shade
 ---@param card Card|table Card to check

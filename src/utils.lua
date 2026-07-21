@@ -212,6 +212,7 @@ end
 
 local function handle_loc_file(dir, language, force, mod_id)
     for k, v in ipairs({ dir .. language .. '.lua', dir .. language .. '.json' }) do
+        v = NFS.getNormalizedPath(v)
         if NFS.getInfo(v) then
             parse_loc_file(v, force, mod_id)
             break
@@ -506,54 +507,60 @@ function SMODS.create_mod_badges(obj, badges)
             end
         end
         for i, mod in ipairs(mods) do
-            local mod_name = mod.display_name
-            local size = 0.9
-            local max_text_width = 2 - 2*0.05 - 4*0.03*size - 2*0.03
-            local scale_fac = 1
-            local badge_text = DynaText({string = mod_name or 'ERROR', colours = {mod.badge_text_colour or G.C.WHITE}, maxw = mod.no_marquee and max_text_width, float = true, shadow = true, offset_y = -0.05, silent = true, spacing = 1*scale_fac, scale = 0.33*size*scale_fac})
-            local badge_scroll = SMODS.UIScrollBox({
-                content = badge_text,
-                container = {
-                    config = {
-                        can_collide = false,
-                    }
-                },
-                overflow = {
-                    node_config = {
-                        no_overflow = not mod.no_marquee and "h" or false,
-                        maxw = not mod.no_marquee and max_text_width or nil,
-                    },
-                    config = {
-                        can_collide = false,
-                    }
-                },
-                sync_mode = "offset",
-                scroll_move = function(self, dt)
-                    local dx = self:get_scroll_distance()
-                    if dx == 0 or mod.no_marquee then return end
-                    if not self.scroll_start_pause then
-                        self.scroll_start_pause = 1.5
-                    end
-                    if self.scroll_start_pause > 0 and self.scroll_offset.x >= 0 then
-                        self.scroll_start_pause = self.scroll_start_pause - G.real_dt
-                    else
-                        self.scroll_offset.x = (self.scroll_offset.x or 0) + G.real_dt / 1.5
-                        if self.scroll_offset.x > self.content_container.T.w then
-                            self.scroll_start_pause = 1.5
-                            self.scroll_offset.x = -self.T.w - 0.1
-                        end
-                    end
-                end,
-            })
             badges[#badges + 1] = {n=G.UIT.R, config={align = "cm"}, nodes={
-                {n=G.UIT.R, config={align = "cm", colour = mod.badge_colour or G.C.GREEN, r = 0.1, minw = 2, minh = 0.36, emboss = 0.05, padding = 0.03*size}, nodes={
-                  {n=G.UIT.B, config={h=0.1,w=0.03}},
-                  {n=G.UIT.O, config={id = 'smods_mod_badge_text', object=badge_scroll}},
-                  {n=G.UIT.B, config={h=0.1,w=0.03}},
-                }}
-              }}
+                SMODS.create_mod_badge(mod, obj)}
+            }
         end
     end
+end
+
+function SMODS.create_mod_badge(mod, obj, width, text_height)
+    if mod.set_mod_badge and type(mod.set_mod_badge) == 'function' then
+        return mod:set_mod_badge(obj)
+    end
+    local mod_name = mod.display_name
+    local max_text_width = width or 1.732
+    local scale_fac = 1
+    local badge_text = DynaText({string = mod_name or 'ERROR', colours = {mod.badge_text_colour or G.C.WHITE}, maxw = mod.no_marquee and max_text_width, float = true, shadow = true, offset_y = -0.05, silent = true, spacing = 1*scale_fac, scale = text_height or 0.297})
+    local badge_scroll = SMODS.UIScrollBox({
+        content = badge_text,
+        container = {
+            config = {
+                can_collide = false,
+            }
+        },
+        overflow = {
+            node_config = {
+                no_overflow = not mod.no_marquee and "h" or false,
+                maxw = not mod.no_marquee and max_text_width or nil,
+            },
+            config = {
+                can_collide = false,
+            }
+        },
+        sync_mode = "offset",
+        scroll_move = function(self, dt)
+            local dx = self:get_scroll_distance()
+            if dx == 0 or mod.no_marquee then return end
+            if not self.scroll_start_pause then
+                self.scroll_start_pause = 1.5
+            end
+            if self.scroll_start_pause > 0 and self.scroll_offset.x >= 0 then
+                self.scroll_start_pause = self.scroll_start_pause - G.real_dt
+            else
+                self.scroll_offset.x = (self.scroll_offset.x or 0) + G.real_dt / 1.5
+                if self.scroll_offset.x > self.content_container.T.w then
+                    self.scroll_start_pause = 1.5
+                    self.scroll_offset.x = -self.T.w - 0.1
+                end
+            end
+        end,
+    })
+    return {n=G.UIT.R, config={align = "cm", id = 'badge_'..mod.id, colour = mod.badge_colour or G.C.GREEN, shader = not obj.no_shader_on_modbadge and mod.badge_shader or nil, r = 0.1, minw = 2, minh = 0.36, emboss = 0.05, padding = 0.027}, nodes={
+        {n=G.UIT.B, config={h=0.1,w=0.03}},
+        {n=G.UIT.O, config={id = 'smods_mod_badge_text', object=badge_scroll}},
+        {n=G.UIT.B, config={h=0.1,w=0.03}},
+    }}
 end
 
 function SMODS.create_loc_dump()
@@ -1159,7 +1166,7 @@ SMODS.collection_pool = function(_base_pool)
     local is_array = _base_pool[1]
     local ipairs = is_array and ipairs or pairs
     for _, v in ipairs(_base_pool) do
-        if (not G.ACTIVE_MOD_UI or v.mod == G.ACTIVE_MOD_UI) and (not v.no_collection or (type(v.no_collection) == "function" and not v.no_collection())) then
+        if (not G.ACTIVE_MOD_UI or v.mod == G.ACTIVE_MOD_UI) and (not SMODS.hide_from_collection(v)) then
             pool[#pool+1] = v
         end
     end
@@ -1296,21 +1303,26 @@ SMODS.calculate_individual_effect = function(effect, scored_card, key, amount, f
     if (key == 'p_dollars' or key == 'dollars' or key == 'h_dollars') and amount then
         if effect.card and effect.card ~= scored_card then juice_card(effect.card) end
         SMODS.ease_dollars_calc = true
+        local initial_dollars = G.GAME.dollars
+        SMODS.dollars_changed = amount
         ease_dollars(amount, effect.instant)
+        local final_amt = SMODS.dollars_changed
         SMODS.ease_dollars_calc = nil
         if not effect.remove_default_message then
             if effect.dollar_message then
                 card_eval_status_text(effect.message_card or effect.juice_card or scored_card or effect.card or effect.focus, 'extra', nil, percent, nil, effect.dollar_message)
             else
-                card_eval_status_text(effect.message_card or effect.juice_card or scored_card or effect.card or effect.focus, 'dollars', amount, percent)
+                card_eval_status_text(effect.message_card or effect.juice_card or scored_card or effect.card or effect.focus, 'dollars', final_amt, percent)
             end
         end
         SMODS.calculate_context({
             money_altered = true,
-            amount = amount,
+            amount = final_amt,
+            initial = initial_dollars,
             from_shop = (G.STATE == G.STATES.SHOP or G.STATE == G.STATES.SMODS_BOOSTER_OPENED or G.STATE == G.STATES.SMODS_REDEEM_VOUCHER) or nil,
             from_consumeable = (G.STATE == G.STATES.PLAY_TAROT) or nil,
             from_scoring = (G.STATE == G.STATES.HAND_PLAYED) or nil,
+            from_cashout = SMODS.money_from_cashout or nil,
         })
         return true
     end
@@ -1656,7 +1668,7 @@ SMODS.calculate_repetitions = function(card, context, reps)
                     for i = curr_size + 1, new_size do
                         if not first then
                             post = {}
-                            if not context.post_trigger and SMODS.optional_features.post_trigger then
+                            if SMODS.optional_features.post_trigger and SMODS.can_context_post_trigger(context) then
                                 SMODS.calculate_context({blueprint_card = context.blueprint_card, post_trigger = true, other_card = _card, other_context = context, other_ret = eval}, post)
                             end
                         end
@@ -1724,7 +1736,7 @@ end
 
 SMODS.calculate_retriggers = function(card, context, _ret)
     local retriggers = {}
-    if not SMODS.optional_features.retrigger_joker then return retriggers end
+    if not SMODS.optional_features.retrigger_joker or not SMODS.can_context_retrigger(context) then return retriggers end
     for _, area in ipairs(SMODS.get_card_areas('jokers')) do
         for _, _card in ipairs(area.cards) do
             local eval, post = eval_card(_card, {retrigger_joker_check = true, other_card = card, other_context = context, other_ret = _ret})
@@ -1972,6 +1984,45 @@ function SMODS.is_getter_context(context)
     if context.mod_probability or context.fix_probability then return "probability" end
     if context.check_enhancement then return "enhancement" end
     return false
+end
+
+SMODS.CONTEXT_RETRIGGER_BLACKLIST = {
+    mod_probability = true, fix_probability = true,
+    check_enhancement = true,
+    retrigger_joker_check = true, retrigger_joker = true,
+    modify_scoring_hand = true,
+    modify_weights = true,
+    evaluate_poker_hand = true,
+    debuff_hand = true,
+}
+
+function SMODS.can_context_retrigger(context)
+    for entry, _ in pairs(SMODS.CONTEXT_RETRIGGER_BLACKLIST) do
+        if context[entry] then
+            return false
+        end
+    end
+    return true
+end
+
+SMODS.CONTEXT_POST_TRIGGER_BLACKLIST = {
+    mod_probability = true, fix_probability = true,
+    check_enhancement = true,
+    retrigger_joker_check = true, 
+    post_trigger = true,
+    modify_scoring_hand = true,
+    modify_weights = true,
+    evaluate_poker_hand = true,
+    debuff_hand = true,
+}
+
+function SMODS.can_context_post_trigger(context)
+    for entry, _ in pairs(SMODS.CONTEXT_POST_TRIGGER_BLACKLIST) do
+        if context[entry] then
+            return false
+        end
+    end
+    return true
 end
 
 
@@ -2355,13 +2406,11 @@ function SMODS.eval_individual(individual, context)
     if (eff and not eff.no_retrigger) or triggered then
         --if type(eff) == 'table' then eff.juice_card = eff.juice_card or individual.scored_card end
         ret.individual = eff
-        if not (context.retrigger_joker_check or context.retrigger_joker) then
-            local retriggers = SMODS.calculate_retriggers(individual.object, context, ret)
-            if next(retriggers) then
-                ret.retriggers = retriggers
-            end
+        local retriggers = SMODS.calculate_retriggers(individual.object, context, ret)
+        if next(retriggers) then
+            ret.retriggers = retriggers
         end
-        if not context.post_trigger and not context.retrigger_joker_check and SMODS.optional_features.post_trigger then
+        if SMODS.optional_features.post_trigger and SMODS.can_context_post_trigger(context) then
             SMODS.calculate_context({blueprint_card = context.blueprint_card, post_trigger = true, other_card = individual.object, other_context = context, other_ret = ret}, post_trig)
         end
     end
@@ -2454,11 +2503,13 @@ end
 
 local function insert(t, res)
     for k,v in pairs(res) do
-        if type(v) == 'table' and type(t[k]) == 'table' then
-            insert(t[k], v)
-        else
-            t[k] = true
-        end
+		if v then
+            if type(v) == 'table' and type(t[k]) == 'table' then
+                insert(t[k], v)
+            else
+                t[k] = true
+            end
+		end
     end
 end
 SMODS.optional_features = {
@@ -2646,9 +2697,12 @@ function SMODS.seeing_double_check(hand, suit)
     end
     for i = 1, #hand do
         if SMODS.has_any_suit(hand[i]) then
-            if hand[i]:is_suit(suit) and suit_tally[suit] == 0 then suit_tally[suit] = suit_tally[suit] + 1 end
-            for k, v in pairs(suit_tally) do
-                if hand[i]:is_suit(k) and suit_tally[k] == 0  then suit_tally[k] = suit_tally[k] + 1 end
+            if hand[i]:is_suit(suit) and suit_tally[suit] == 0 then
+                suit_tally[suit] = 1
+            else
+                for k, v in pairs(suit_tally) do
+                    if hand[i]:is_suit(k) and suit_tally[k] == 0  then suit_tally[k] = 1 end
+                end
             end
         end
     end
@@ -2686,7 +2740,8 @@ function SMODS.localize_box(lines, args)
             underline = part.control.u and loc_colour(part.control.u),
             strikethrough = part.control.st and loc_colour(part.control.st),
             font = SMODS.Fonts[part.control.f] or G.FONTS[tonumber(part.control.f)],
-            scale_mod = part.control.s and tonumber(part.control.s) or args.scale  or 1
+            scale_mod = part.control.s and tonumber(part.control.s) or args.scale  or 1,
+            text_outline = part.control.O and loc_colour(part.control.O),
         }
         local desc_scale = (thunk.font or G.LANG.font).DESCSCALE
         if G.F_MOBILE_UI then desc_scale = desc_scale*1.5 end
@@ -2720,6 +2775,7 @@ function SMODS.localize_box(lines, args)
               button = part.control.button,
               strikethrough = part.control.st and loc_colour(part.control.st),
               underline = part.control.u and loc_colour(part.control.u),
+              text_outline = part.control.O and loc_colour(part.control.O),
               scale = (0.55 - 0.004*#(final_name_assembled_string or assembled_string))*thunk.scale_mod*(args.fixed_scale or 1)
             })
           }}
@@ -2758,6 +2814,7 @@ function SMODS.localize_box(lines, args)
                     font = thunk.font,
                     underline = thunk.underline,
                     strikethrough = thunk.strikethrough,
+                    text_outline = thunk.text_outline,
                     scale = 0.32*thunk.scale_mod*desc_scale}},
                 }}
         else
@@ -2778,6 +2835,7 @@ function SMODS.localize_box(lines, args)
                 font = thunk.font,
                 underline = thunk.underline,
                 strikethrough = thunk.strikethrough,
+                text_outline = thunk.text_outline,
                 scale = 0.32*thunk.scale_mod*desc_scale
             }}
         end
@@ -3485,14 +3543,18 @@ end
 
 local ease_dollar_ref = ease_dollars
 function ease_dollars(mod, instant)
+    local initial_dollars = G.GAME.dollars
     ease_dollar_ref(mod, instant)
+    SMODS.dollars_changed = mod
     if SMODS.ease_dollars_calc then return end
     SMODS.calculate_context({
         money_altered = true,
         amount = mod,
+        initial = initial_dollars,
         from_shop = (G.STATE == G.STATES.SHOP or G.STATE == G.STATES.SMODS_BOOSTER_OPENED or G.STATE == G.STATES.SMODS_REDEEM_VOUCHER) or nil,
         from_consumeable = (G.STATE == G.STATES.PLAY_TAROT) or nil,
         from_scoring = (G.STATE == G.STATES.HAND_PLAYED) or nil,
+        from_cashout = SMODS.money_from_cashout or nil,
     })
 end
 function SMODS.add_to_pool(prototype_obj, args)
@@ -3500,6 +3562,13 @@ function SMODS.add_to_pool(prototype_obj, args)
         return prototype_obj:in_pool(args)
     end
     return true
+end
+
+function SMODS.hide_from_collection(prototype_obj, args)
+    if type(prototype_obj.no_collection) == "function" then
+        return prototype_obj:no_collection(args)
+    end
+    return prototype_obj.no_collection
 end
 
 
@@ -4149,6 +4218,38 @@ function UIElement:set_text_shader(shader, send, shadow)
     })
 end
 
+function UIElement:draw_text_outline(button_active)
+	if not button_active then
+		return
+	end
+	love.graphics.setColor(self.config.text_outline)
+	for x = -1, 1 do
+		for y = -1, 1 do
+			if x ~= 0 or y ~= 0 then
+				love.graphics.draw(
+					self.config.text_drawable,
+					((self.config.font or self.config.lang.font).TEXT_OFFSET.x + x * 20)
+						* self.config.scale
+						* (self.config.font or self.config.lang.font).FONTSCALE
+						/ G.TILESIZE,
+					((self.config.font or self.config.lang.font).TEXT_OFFSET.y + y * 20)
+						* self.config.scale
+						* (self.config.font or self.config.lang.font).FONTSCALE
+						/ G.TILESIZE,
+					0,
+					self.config.scale
+						* (self.config.font or self.config.lang.font).squish
+						* (self.config.font or self.config.lang.font).FONTSCALE
+						/ G.TILESIZE,
+					self.config.scale * (self.config.font or self.config.lang.font).FONTSCALE / G.TILESIZE
+				)
+			end
+		end
+	end
+	love.graphics.setColor(self.config.colour)
+end
+
+
 -- function to modify score: normally accepts add and mult argument and additionally card argument
 SMODS.mod_score = function(score_mod)
     score_mod = score_mod or {}
@@ -4274,6 +4375,69 @@ function SMODS.add_to_deck(card, args)
     local area = args.area or G.jokers
     area:emplace(card)
     return card
+end
+
+-- Hook for the below Util function
+local sprite_draw_from_ref = Sprite.draw_from
+function Sprite:draw_from(...)
+    local old_filter_min, old_filter_mag
+    if self.atlas and SMODS.texture_filter_override then 
+        old_filter_min, old_filter_mag = self.atlas.image:getFilter()
+        self.atlas.image:setFilter(SMODS.texture_filter_override, SMODS.texture_filter_override) 
+    end
+    local ret = sprite_draw_from_ref(self, ...)
+    if self.atlas and SMODS.texture_filter_override then 
+        self.atlas.image:setFilter(old_filter_min, old_filter_mag) 
+    end
+    return ret
+end
+
+-- Hook for the below Util function
+local sprite_draw_self_ref = Sprite.draw_self
+function Sprite:draw_self(...)
+    local old_filter_min, old_filter_mag
+    if self.atlas and SMODS.texture_filter_override then 
+        old_filter_min, old_filter_mag = self.atlas.image:getFilter()
+        self.atlas.image:setFilter(SMODS.texture_filter_override, SMODS.texture_filter_override) 
+    end
+    local ret = sprite_draw_self_ref(self, ...)
+    if self.atlas and SMODS.texture_filter_override then 
+        self.atlas.image:setFilter(old_filter_min, old_filter_mag) 
+    end
+    return ret
+end
+
+-- Util function to render one card to a .png file (usually saved to the mods folder's parent directory)
+function SMODS.card_to_image(card, scale, filename)
+	if not type(card) == "table" then return end
+    local key = ((card.config or {}).center or {}).key or "card_to_image"
+    scale = scale or G.SETTINGS.GRAPHICS.texture_scaling
+	filename = (filename or key == "j_joker" and "jimbo" or key) .. ".png"
+    
+	local canvas = love.graphics.newCanvas(71 * scale, 95 * scale, {type = '2d', readable = true})
+    canvas:setFilter('nearest', 'nearest')
+
+    local old_t = SMODS.shallow_copy(card.T)
+	local old_shadow = card.no_shadow
+    local old_rm = G.SETTINGS.reduced_motion
+    card.T.r = 0
+    local old_scale = card.T.scale 
+    card.T.scale = scale / G.TILE_H * G.window_prev.orig_scale * G.window_prev.orig_scale/G.TILESCALE * 1.5 -- Don't ask me why I had to multiply by 1.5 here, and by the per-dimension factors below, I do not know,,, (this may have been brute-tinkered)
+    local w, h = old_t.w * 0.997, old_t.h * 0.99348                                                         -- (well these factors are needed to remove extra pixels in height/width for scales == 2.0 -> 16.0 (at least))
+    card:hard_set_T(w/2*(card.T.scale-1), h/2*(card.T.scale-1), w, h)
+	card.no_shadow = true
+    G.SETTINGS.reduced_motion = true
+    SMODS.texture_filter_override = "nearest"
+	canvas:renderTo(card.draw, card)
+    SMODS.texture_filter_override = nil
+    G.SETTINGS.reduced_motion = old_rm
+    card.no_shadow = old_shadow
+    card.T.scale = old_scale
+    card:hard_set_T(old_t.x, old_t.y, old_t.w, old_t.h)
+
+	local image_data = canvas:newImageData()
+	image_data:encode("png", filename)
+	print("SMODS : Saved card image to "..love.filesystem.getSaveDirectory().."/"..filename .. " at scale " .. scale)
 end
 
 function Card:is_suit_shade(shade, bypass_debuff)

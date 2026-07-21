@@ -328,8 +328,8 @@ Set `prefix_config.key = false` on your object instead.]]):format(obj.key), obj.
             local file_path = self.path
             if file_path == 'DEFAULT' then return end
 
-            self.full_path = (self.path_mod or self.mod or SMODS).path ..
-                'assets/fonts/' .. file_path
+            self.full_path = NFS.getNormalizedPath((self.path_mod or self.mod or SMODS).path ..
+                'assets/fonts/' .. file_path)
             local file_data = assert(NFS.newFileData(self.full_path),
                 ('Failed to collect file data for Font %s'):format(self.key))
             self.FONT = assert(love.graphics.newFont(file_data, self.render_scale or G.TILESIZE),
@@ -458,12 +458,32 @@ Set `prefix_config.key = false` on your object instead.]]):format(obj.key), obj.
             -- language specific sprites override fully defined sprites only if that language is set
             if self.language and G.SETTINGS.language ~= self.language and G.SETTINGS.real_language ~= self.language then return end
             if not self.language and (self.obj_table[('%s_%s'):format(self.key, G.SETTINGS.language)] or self.obj_table[('%s_%s'):format(self.key, G.SETTINGS.real_language)]) then return end
-            self.full_path = (self.path_mod or self.mod or SMODS).path ..
-                'assets/' .. G.SETTINGS.GRAPHICS.texture_scaling .. 'x/' .. file_path
-            local file_data = assert(NFS.newFileData(self.full_path),
-                ('Failed to collect file data for Atlas %s'):format(self.key))
-            self.image_data = assert(love.image.newImageData(file_data),
-                ('Failed to initialize image data for Atlas %s'):format(self.key))
+            self.full_path = NFS.getNormalizedPath((self.path_mod or self.mod or SMODS).path ..
+                'assets/' .. G.SETTINGS.GRAPHICS.texture_scaling .. 'x/' .. file_path)
+            local file_data = NFS.newFileData(self.full_path)
+            if file_data then
+                self.image_data = assert(love.image.newImageData(file_data),
+                    ('Failed to initialize image data for Atlas %s'):format(self.key))
+            else
+                self.full_path = NFS.getNormalizedPath((self.path_mod or self.mod or SMODS).path ..
+                    'assets/' .. (3 - G.SETTINGS.GRAPHICS.texture_scaling) .. 'x/' .. file_path)
+                file_data = assert(NFS.newFileData(self.full_path),
+                    ('Failed to collect file data for Atlas %s'):format(self.key))
+                self.image_data = assert(love.image.newImageData(file_data),
+                    ('Failed to initialize image data for Atlas %s'):format(self.key))
+                local shifts = { bit.rshift, bit.lshift }
+                local shift_dim, shift_pixel = shifts[G.SETTINGS.GRAPHICS.texture_scaling], shifts[3-G.SETTINGS.GRAPHICS.texture_scaling]
+                local imageData2 = love.image.newImageData(
+                    shift_dim(self.image_data:getWidth(), 1),
+                    shift_dim(self.image_data:getHeight(), 1),
+                    self.image_data:getFormat()
+                )
+                imageData2:mapPixel(function(x, y)
+                    return self.image_data:getPixel(shift_pixel(x, 1), shift_pixel(y, 1))
+                end)
+                self.image_data:release()
+                self.image_data = imageData2
+        	end
             self.image = love.graphics.newImage(self.image_data,
                 { mipmaps = true, dpiscale = G.SETTINGS.GRAPHICS.texture_scaling })
             G[self.atlas_table][self.key_noloc or self.key] = self
@@ -476,7 +496,12 @@ Set `prefix_config.key = false` on your object instead.]]):format(obj.key), obj.
         process_loc_text = function() end,
         pre_inject_class = function(self)
             G:set_render_settings() -- restore originals first in case a texture pack was disabled
-        end
+        end,
+        post_inject_class = function(self)
+            for _, v in pairs(G.I.SPRITE) do
+                v:reset()
+            end
+        end,
     }
 
     SMODS.Atlas {
@@ -538,8 +563,8 @@ Set `prefix_config.key = false` on your object instead.]]):format(obj.key), obj.
                 ((G.SETTINGS.real_language and self.path[G.SETTINGS.real_language]) or self.path[G.SETTINGS.language] or self.path['default'] or self.path['en-us']) or self.path
             if file_path == 'DEFAULT' then return end
             local prev_path = self.full_path
-            self.full_path = (self.path_mod or self.mod or SMODS).path ..
-                'assets/sounds/' .. file_path
+            self.full_path = NFS.getNormalizedPath((self.path_mod or self.mod or SMODS).path ..
+                'assets/sounds/' .. file_path)
             if prev_path == self.full_path then return end
             self.data = NFS.read('data', self.full_path)
             --self.decoder = love.sound.newDecoder(self.data)
@@ -711,20 +736,22 @@ Set `prefix_config.key = false` on your object instead.]]):format(obj.key), obj.
                     G.sticker_map[self.key] = nil
                 end
             end
-            -- Sorts stake into the correct spot
-            if self.above_stake and G.P_STAKES[self.above_stake] then
-                self.order = G.P_STAKES[self.above_stake].order + 1
-            end
-            for i, v in pairs(G.P_STAKES) do
-                if i ~= self.key and v.order >= self.order then
-                    v.order = v.order + 1
-                end
-            end
             self.injected = true
             -- should only need to do this once per injection routine
         end,
         post_inject_class = function(self)
-            table.sort(G.P_CENTER_POOLS[self.set], function(a, b) return a.order < b.order end)
+            -- sort stakes into the correct spot
+            local stakes_fixed = false
+            repeat
+                table.sort(G.P_CENTER_POOLS[self.set], function(a, b) return a.order < b.order end)
+                stakes_fixed = true
+                for i, v in ipairs(G.P_CENTER_POOLS[self.set]) do
+                    if v.above_stake and G.P_STAKES[v.above_stake] and v.order < G.P_STAKES[v.above_stake].order then
+                        v.order = G.P_STAKES[v.above_stake].order + 1
+                        stakes_fixed = false
+                    end
+                end
+            until stakes_fixed
             for i,v in ipairs(G.P_CENTER_POOLS[self.set]) do
                 G.P_STAKES[v.key].order = i
             end
@@ -1110,7 +1137,7 @@ Set `prefix_config.key = false` on your object instead.]]):format(obj.key), obj.
         create_UIBox_your_collection = function(self)
             local type_buf = {}
             for _, v in ipairs(SMODS.ConsumableType.visible_buffer) do
-                if not v.no_collection and (not G.ACTIVE_MOD_UI or modsCollectionTally(G.P_CENTER_POOLS[v]).of > 0) then type_buf[#type_buf + 1] = v end
+                if (not SMODS.hide_from_collection(v)) and (not G.ACTIVE_MOD_UI or modsCollectionTally(G.P_CENTER_POOLS[v]).of > 0) then type_buf[#type_buf + 1] = v end
             end
             return SMODS.card_collection_UIBox(G.P_CENTER_POOLS[self.key], self.collection_rows, { back_func = #type_buf>3 and 'your_collection_consumables' or nil })
         end,
@@ -1443,7 +1470,7 @@ Set `prefix_config.key = false` on your object instead.]]):format(obj.key), obj.
 
     SMODS.Back = SMODS.Center:extend {
         set = 'Back',
-        discovered = false,
+        discovered = true,
         unlocked = true,
         atlas = 'centers',
         pos = { x = 0, y = 0 },
@@ -3374,8 +3401,8 @@ SMODS.UndiscoveredCompat = {
         set = 'Shader',
         send_vars = nil, -- function (sprite) - get custom externs to send to shader.
         inject = function(self)
-            self.full_path = (self.path_mod or self.mod or SMODS).path ..
-                'assets/shaders/' .. self.path
+            self.full_path = NFS.getNormalizedPath((self.path_mod or self.mod or SMODS).path ..
+                'assets/shaders/' .. self.path)
 
             local file = assert(NFS.read(self.full_path),
                 ('Failed to collect file data for Shader %s'):format(self.key))
@@ -3707,13 +3734,29 @@ SMODS.UndiscoveredCompat = {
         end
     }
 
-        SMODS.Keybind {
+    SMODS.Keybind {
         key_pressed = 'f5',
         held_keys = { "lalt" },
         event = 'pressed',
         action = function(self)
             SMODS.save_all_config()
 		    SMODS.restart_game()
+        end
+    }
+
+    SMODS.Keybind {
+        key_pressed = 'f2',
+        event = 'pressed',
+        action = function(self)
+            local target = G.CONTROLLER.hovering.target or G.CONTROLLER.focused.target
+            if not _RELEASE_MODE and target and type(target.is) == "function" and target:is(Card) then
+                local scale = 0
+                for i=0,9,1 do
+                    if love.keyboard.isDown(""..i) then scale = scale + (i == 0 and 10 or i) end
+                end
+                if scale <= 0 then scale = G.SETTINGS.GRAPHICS.texture_scaling end
+                SMODS.card_to_image(target, scale)
+            end
         end
     }
 
