@@ -25,7 +25,7 @@ SMODS.RunSelectPage = SMODS.GameObject:extend({
         self.pool = self.generate_pool and self:generate_pool()
         if not self.injected then
             if self.quick_start_text then
-                table.insert(SMODS.RunSelect.Internals.quick_start_text_functions, self.page, self.quick_start_text)
+                table.insert(SMODS.RunSelect.Internals.quick_start_text_functions, math.min(self.page, #SMODS.RunSelect.Internals.quick_start_text_functions + 1), self.quick_start_text)
             end
             table.insert(SMODS.RunSelect.Internals.pages, self.page, self.key)
             for i = self.page + 1, #SMODS.RunSelect.Internals.pages do
@@ -49,7 +49,7 @@ SMODS.RunSelectPage = SMODS.GameObject:extend({
                 SMODS.RunSelect.Setup.choices[self.key] = choice.config.center.key
             end
             if SMODS.RunSelect.Internals.preview_area then SMODS.RunSelect.Functions.populate_preview_ui(self.key, choice.config.center.key, self.silent) end
-        else
+        elseif not self.no_remove then
             if self.selection_limit == 1 then
                 SMODS.RunSelect.Setup.choices[self.key] = nil
             else
@@ -117,9 +117,8 @@ SMODS.RunSelectPage({
     end,
     stack_size = 10,
     preview_size = 52,
-    quick_start_text = function()
-        if not G.P_CENTERS[G.PROFILES[G.SETTINGS.profile].last_choices.deck_choice] then G.PROFILES[G.SETTINGS.profile].last_choices.deck_choice = 'b_red' end
-        return localize({type = 'name_text', set = 'Back', key = G.PROFILES[G.SETTINGS.profile].last_choices.deck_choice})
+    quick_start_text = function(self, choice)
+        return localize({type = 'name_text', set = 'Back', key = choice})
     end,
     set_default = function(self, choice)
         return G.P_CENTERS[choice] and choice or 'b_red'
@@ -131,7 +130,7 @@ SMODS.RunSelectPage({
         card.children.back:remove()
         card.children.back = SMODS.create_sprite(card.T.x, card.T.y, card.T.w, card.T.h, G.ASSET_ATLAS[card.config.center.unlocked and card.config.center.atlas or 'centers'], card.config.center.unlocked and card.config.center.pos or {x = 4, y = 0})
         stick(card)
-        if card_number == self.stack_size then
+        if card_number == SMODS.RunSelect.Internals.stack_size then
             card.sticker = get_deck_win_sticker(card.config.center)
         end
         return card
@@ -150,9 +149,8 @@ SMODS.RunSelectPage({
         return G.P_CENTER_POOLS.Stake
     end,
     sprite_size = {w = 0.99, h = 0.99},
-    quick_start_text = function()
-        if not G.P_STAKES[G.PROFILES[G.SETTINGS.profile].last_choices.stake_choice] then G.PROFILES[G.SETTINGS.profile].last_choices.stake_choice = 'stake_white' end
-        return localize({type = 'name_text', set = 'Stake', key = G.PROFILES[G.SETTINGS.profile].last_choices.stake_choice})
+    quick_start_text = function(self, choice)
+        return localize({type = 'name_text', set = 'Stake', key = choice})
     end,
     set_default = function(self, choice)
         if not choice or not G.P_STAKES[choice] then return 'stake_white' else return self.is_stake_unlocked(G.P_STAKES[choice]) and choice or 'stake_white' end
